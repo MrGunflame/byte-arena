@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "array-arena"
+name = "byte-arena"
 version = "0.1.0"

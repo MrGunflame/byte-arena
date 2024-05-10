@@ -1,6 +1,13 @@
 [package]
-name = "array-arena"
+name = "byte-arena"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+[features]
+default = ["zero_headers"]
+# Zero headers on deallocation.
+# Must be used with the fuzzer to detect reuse of already allocated
+# memory regions.
+zero_headers = []
