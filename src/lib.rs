@@ -30,7 +30,7 @@
 //!
 //! Note that the use of [`Index`] values between different [`Arena`] instances is not specified
 //! and may cause panics, corrupt the internal representations but will not cause undefined
-//! behavoir.
+//! behavior.
 
 #![no_std]
 
