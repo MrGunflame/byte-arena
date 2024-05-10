@@ -19,13 +19,13 @@
 //! let mut buf_index = buf.index();
 //!
 //! // Allocate a 1KiB zeroed buffer.
-//! let mut zeroed_buffer = arena.alloc(1024).unwrap();
-//! let mut zeroed_buffer_index = buf.index();
+//! let mut zeroed_buf = arena.alloc(1024).unwrap();
+//! let mut zeroed_buf_index = zeroed_buf.index();
 //!
 //! let buf = arena.get(buf_index).unwrap();
 //!
 //! arena.dealloc(buf_index);
-//! arena.dealloc(zeroed_buffer_index);
+//! arena.dealloc(zeroed_buf_index);
 //! ```
 //!
 //! Note that the use of [`Index`] values between different [`Arena`] instances is not specified
