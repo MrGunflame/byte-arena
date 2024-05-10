@@ -1,7 +1,46 @@
-use core::borrow::Borrow;
+//! A statically sized arena for byte buffers.
+//!
+//! This crate provides an [`Arena`] for allocation of dynmically sized byte buffers (`[u8]`)
+//! without dependency on `std` or `alloc`.
+//!
+//! # Usage
+//!
+//! ```
+//! use byte_arena::Arena;
+//!
+//! // Create a new arena with 8KiB backing storage.
+//! let mut arena = Arena::new([0; 8192]);
+//!
+//! // Allocate a 1KiB buffer.
+//! let mut buf = arena.alloc(1024).unwrap();
+//! buf.fill(42);
+//! // The index allows access to the allocation after the
+//! // buffer has been dropped.
+//! let mut buf_index = buf.index();
+//!
+//! // Allocate a 1KiB zeroed buffer.
+//! let mut zeroed_buffer = arena.alloc(1024).unwrap();
+//! let mut zeroed_buffer_index = buf.index();
+//!
+//! let buf = arena.get(buf_index).unwrap();
+//!
+//! arena.dealloc(buf_index);
+//! arena.dealloc(zeroed_buffer_index);
+//! ```
+//!
+//! Note that the use of [`Index`] values between different [`Arena`] instances is not specified
+//! and may cause panics, corrupt the internal representations but will not cause undefined
+//! behavoir.
+
+#![no_std]
+
+#[cfg(test)]
+extern crate std;
+
 use core::fmt::{self, Display, Formatter};
 use core::ops::{Deref, DerefMut};
 
+/// A statically-sized arena for allocation of byte buffers.
 #[derive(Clone, Debug)]
 pub struct Arena<const N: usize> {
     storage: [u8; N],
@@ -9,6 +48,8 @@ pub struct Arena<const N: usize> {
 }
 
 impl<const N: usize> Arena<N> {
+    /// Creates a new `Arena`.
+    #[inline]
     pub const fn new(storage: [u8; N]) -> Self {
         Self {
             storage,
@@ -16,12 +57,24 @@ impl<const N: usize> Arena<N> {
         }
     }
 
+    /// Allocates a new chunk from this `Arena`.
+    ///
+    /// Returns an [`AllocError`] if the given `size` exceeeds to amount of bytes this `Arena` can
+    /// still allocate.
+    ///
+    /// Note that a zero-sized allocation will always suceed and a allocation greater than `N` will
+    /// always fail.
     pub fn alloc(&mut self, size: usize) -> Result<BufMut<'_>, AllocError> {
         if size == 0 {
             return Ok(BufMut {
                 index: Index(usize::MAX),
                 slice: &mut [],
             });
+        }
+
+        // We can never allocate more than our buffer size is.
+        if size > self.storage.len() - Header::SIZE {
+            return Err(AllocError(size));
         }
 
         // Arena is completely empty, allocate the new chnuk at
@@ -90,16 +143,29 @@ impl<const N: usize> Arena<N> {
         Err(AllocError(size))
     }
 
+    /// Allocates a new zeroed chunk from this `Arena`.
+    ///
+    /// This method is equivalent to `alloc`, except that the returned buffer is zeroed.
     pub fn alloc_zeroed(&mut self, size: usize) -> Result<BufMut<'_>, AllocError> {
         let mut buf = self.alloc(size)?;
         buf.fill(0);
         Ok(buf)
     }
 
+    /// Deallocates a previously allocated chunk.
     pub fn dealloc(&mut self, index: Index) {
         let index = index.0;
 
+        // Index points to outside our storage buffer and is invalid.
+        if index.saturating_add(Header::SIZE) >= self.storage.len() {
+            return;
+        }
+
         let header = self.read_header(index);
+
+        if cfg!(feature = "zero_headers") {
+            self.storage[index..index + Header::SIZE].fill(0);
+        }
 
         if let Some(next) = header.next {
             let mut next_header = self.read_header(next.get());
@@ -116,13 +182,127 @@ impl<const N: usize> Arena<N> {
         }
     }
 
-    pub fn get(&mut self) {}
+    /// Returns the chunk with the given [`Index`].
+    pub fn get(&self, index: Index) -> Option<Buf<'_>> {
+        let index = index.0;
+        if index == usize::MAX {
+            return Some(Buf {
+                index: Index(index),
+                slice: &[],
+            });
+        }
 
-    pub fn get_mut(&mut self, index: Index) -> Option<BufMut<'_>> {
-        let header = Header::from_slice(self.storage.get(index.0..index.0 + Header::SIZE)?);
+        if index.saturating_add(Header::SIZE) >= self.storage.len() {
+            return None;
+        }
+
+        let header = Header::from_slice(self.storage.get(index..index + Header::SIZE)?);
         self.storage
-            .get_mut(index.0 + Header::SIZE..index.0 + Header::SIZE + header.size)
-            .map(|slice| BufMut { index, slice })
+            .get(index + Header::SIZE..index + Header::SIZE + header.size)
+            .map(|slice| Buf {
+                index: Index(index),
+                slice,
+            })
+    }
+
+    /// Returns the chunk with the given [`Index`] without checking if the [`Index`] is valid.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee:
+    /// - The index has been returned from a [`Buf`] or [`BufMut`] value that has been allocated
+    /// with this [`Arena`].
+    /// - The buffer with the `index` has not been deallocated.
+    /// - No [`Index`] values from a different [`Arena`] were ever given to [`get`], [`get_mut`],
+    /// [`get_unchecked`], [`get_unchecked_mut`] or [`dealloc`] on this [`Arena`] instance.
+    ///
+    /// [`get`]: Self::get
+    /// [`get_mut`]: Self::get_mut
+    /// [`get_unchecked`]: Self::get_unchecked
+    /// [`get_unchecked_mut`]: Self::get_unchecked_mut
+    /// [`dealloc`]: Self::dealloc
+    pub unsafe fn get_unchecked(&self, index: Index) -> Buf<'_> {
+        let index = index.0;
+
+        // SAFETY: The caller guarantees that the indices are in bounds and the
+        // header instance is valid.
+        unsafe {
+            let header =
+                Header::from_slice(self.storage.get_unchecked(index..index + Header::SIZE));
+            let slice = self
+                .storage
+                .get_unchecked(index + Header::SIZE..index + Header::SIZE + header.size);
+            Buf {
+                index: Index(index),
+                slice,
+            }
+        }
+    }
+
+    /// Returns the chunk with the given [`Index`].
+    pub fn get_mut(&mut self, index: Index) -> Option<BufMut<'_>> {
+        let index = index.0;
+
+        if index == usize::MAX {
+            return Some(BufMut {
+                index: Index(index),
+                slice: &mut [],
+            });
+        }
+
+        if index.saturating_add(Header::SIZE) >= self.storage.len() {
+            return None;
+        }
+
+        let header = Header::from_slice(self.storage.get(index..index + Header::SIZE)?);
+        self.storage
+            .get_mut(index + Header::SIZE..index + Header::SIZE + header.size)
+            .map(|slice| BufMut {
+                index: Index(index),
+                slice,
+            })
+    }
+
+    /// Returns the chunk with the given [`Index`] without checking if the [`Index`] is valid.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee:
+    /// - The index has been returned from a [`Buf`] or [`BufMut`] value that has been allocated
+    /// with this [`Arena`].
+    /// - The buffer with the `index` has not been deallocated.
+    /// - No [`Index`] values from a different [`Arena`] were ever given to [`get`], [`get_mut`],
+    /// [`get_unchecked`], [`get_unchecked_mut`] or [`dealloc`] on this [`Arena`] instance.
+    ///
+    /// [`get`]: Self::get
+    /// [`get_mut`]: Self::get_mut
+    /// [`get_unchecked`]: Self::get_unchecked
+    /// [`get_unchecked_mut`]: Self::get_unchecked_mut
+    /// [`dealloc`]: Self::dealloc
+    pub unsafe fn get_unchecked_mut(&mut self, index: Index) -> BufMut<'_> {
+        let index = index.0;
+
+        // SAFETY: The caller guarantees that the indices are in bounds and the
+        // header instance is valid.
+        unsafe {
+            let header =
+                Header::from_slice(self.storage.get_unchecked(index..index + Header::SIZE));
+            let slice = self
+                .storage
+                .get_unchecked_mut(index + Header::SIZE..index + Header::SIZE + header.size);
+            BufMut {
+                index: Index(index),
+                slice,
+            }
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.head = None;
+
+        if cfg!(feature = "zero_headers") {
+            self.storage.fill(0);
+        }
     }
 
     fn read_header(&mut self, index: usize) -> Header {
@@ -173,13 +353,6 @@ impl<'a> Buf<'a> {
     }
 }
 
-impl<'a> Borrow<Index> for Buf<'a> {
-    #[inline]
-    fn borrow(&self) -> &Index {
-        &self.index
-    }
-}
-
 impl<'a> Deref for Buf<'a> {
     type Target = [u8];
 
@@ -204,13 +377,6 @@ impl<'a> BufMut<'a> {
     #[inline]
     pub fn index(&self) -> Index {
         self.index
-    }
-}
-
-impl<'a> Borrow<Index> for BufMut<'a> {
-    #[inline]
-    fn borrow(&self) -> &Index {
-        &self.index
     }
 }
 
@@ -283,6 +449,8 @@ impl NonMaxUsize {
 
 #[cfg(test)]
 mod tests {
+    use std::vec::Vec;
+
     use super::{Arena, Header, NonMaxUsize};
 
     #[test]
@@ -363,5 +531,18 @@ mod tests {
         for key in keys {
             arena.dealloc(key);
         }
+    }
+
+    #[test]
+    fn fuzz1() {
+        let mut arena = Arena::new([0; 8192]);
+        let mut keys = Vec::new();
+
+        keys.push(arena.alloc(16).unwrap().index());
+        keys.push(arena.alloc(16).unwrap().index());
+        arena.dealloc(keys.remove(1));
+        arena.dealloc(keys.remove(0));
+        assert_eq!(arena.head, None);
+        keys.push(arena.alloc(64).unwrap().index())
     }
 }
