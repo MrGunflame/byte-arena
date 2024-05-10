@@ -297,6 +297,7 @@ impl<const N: usize> Arena<N> {
         }
     }
 
+    /// Clears all allocations from this `Arena`.
     pub fn clear(&mut self) {
         self.head = None;
 
