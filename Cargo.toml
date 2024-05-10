@@ -2,6 +2,11 @@
 name = "byte-arena"
 version = "0.1.0"
 edition = "2021"
+description = "no_std, no_alloc arena for allocating byte buffers"
+authors = ["MrGunflame <git@robbsrv.de>"]
+repository = "https://github.com/MrGunflame/byte-arena"
+documentation = "https://docs.rs/byte-arena"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 
