@@ -1,7 +1,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use array_arena::Arena;
+use byte_arena::Arena;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|ops: Vec<FuzzOp>| {

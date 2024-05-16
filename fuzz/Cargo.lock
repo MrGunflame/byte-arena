@@ -12,15 +12,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "array-arena"
-version = "0.1.0"
+name = "byte-arena"
+version = "0.1.1"
 
 [[package]]
-name = "array-arena-fuzz"
+name = "byte-arena-fuzz"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
- "array-arena",
+ "byte-arena",
  "libfuzzer-sys",
 ]
 
