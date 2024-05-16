@@ -40,6 +40,8 @@ extern crate std;
 use core::fmt::{self, Display, Formatter};
 use core::ops::{Deref, DerefMut};
 
+const USIZE_LEN: usize = core::mem::size_of::<usize>();
+
 /// A statically-sized arena for allocation of byte buffers.
 #[derive(Clone, Debug)]
 pub struct Arena<const N: usize> {
@@ -101,7 +103,8 @@ impl<const N: usize> Arena<N> {
         let mut next = self.head.map(|v| v.get());
 
         while let Some(next_chunk) = next {
-            let mut header = Header::from_slice(&self.storage[next_chunk..next_chunk + 24]);
+            let mut header =
+                Header::from_slice(&self.storage[next_chunk..next_chunk + Header::SIZE]);
 
             let chunk_start = next_chunk + Header::SIZE;
             let chunk_end = header.next.unwrap_or(NonMaxUsize::new(N).unwrap()).get();
@@ -398,12 +401,13 @@ impl<'a> DerefMut for BufMut<'a> {
 }
 
 impl Header {
-    const SIZE: usize = 24;
+    const SIZE: usize = USIZE_LEN * 3;
 
     fn from_slice(slice: &[u8]) -> Self {
-        let next: usize = usize::from_ne_bytes(slice[0..8].try_into().unwrap());
-        let prev: usize = usize::from_ne_bytes(slice[8..16].try_into().unwrap());
-        let size: usize = usize::from_ne_bytes(slice[16..24].try_into().unwrap());
+        let next: usize = usize::from_ne_bytes(slice[0..USIZE_LEN].try_into().unwrap());
+        let prev: usize = usize::from_ne_bytes(slice[USIZE_LEN..USIZE_LEN * 2].try_into().unwrap());
+        let size: usize =
+            usize::from_ne_bytes(slice[USIZE_LEN * 2..USIZE_LEN * 3].try_into().unwrap());
 
         Self {
             next: NonMaxUsize::new(next),
@@ -413,21 +417,21 @@ impl Header {
     }
 
     fn write_to_slice(&self, buf: &mut [u8]) {
-        buf[0..8].copy_from_slice(
+        buf[0..USIZE_LEN].copy_from_slice(
             &self
                 .next
                 .map(|v| v.get())
                 .unwrap_or(usize::MAX)
                 .to_ne_bytes(),
         );
-        buf[8..16].copy_from_slice(
+        buf[USIZE_LEN..USIZE_LEN * 2].copy_from_slice(
             &self
                 .prev
                 .map(|v| v.get())
                 .unwrap_or(usize::MAX)
                 .to_ne_bytes(),
         );
-        buf[16..24].copy_from_slice(&self.size.to_ne_bytes());
+        buf[USIZE_LEN * 2..USIZE_LEN * 3].copy_from_slice(&self.size.to_ne_bytes());
     }
 }
 
