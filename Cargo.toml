@@ -1,6 +1,6 @@
 [package]
 name = "byte-arena"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 description = "no_std, no_alloc arena for allocating byte buffers"
 authors = ["MrGunflame <git@robbsrv.de>"]
@@ -11,8 +11,9 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 
 [features]
-default = ["zero_headers"]
+default = []
 # Zero headers on deallocation.
 # Must be used with the fuzzer to detect reuse of already allocated
 # memory regions.
 zero_headers = []
+
