@@ -352,6 +352,11 @@ pub struct Buf<'a> {
 
 impl<'a> Buf<'a> {
     #[inline]
+    pub fn as_slice(&'a self) -> &'a [u8] {
+        self.slice
+    }
+
+    #[inline]
     pub fn index(&self) -> Index {
         self.index
     }
@@ -374,8 +379,13 @@ pub struct BufMut<'a> {
 
 impl<'a> BufMut<'a> {
     #[inline]
-    pub fn as_slice(&self) -> &[u8] {
-        &self.slice
+    pub fn as_slice(&'a self) -> &'a [u8] {
+        self.slice
+    }
+
+    #[inline]
+    pub fn as_mut_slice(&'a mut self) -> &'a mut [u8] {
+        self.slice
     }
 
     #[inline]
